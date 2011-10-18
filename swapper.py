@@ -159,7 +159,7 @@ def make_slave(host,port,user,passwd,log_name,log_pos):
                   log_pos=log_pos)    
     cmd = """CHANGE MASTER TO 
                     MASTER_HOST='%(host)s',
-                    MASTER_PORT='%(port)s',  
+                    MASTER_PORT=%(port)s,  
                     MASTER_USER='%(user)s', 
                     MASTER_PASSWORD='%(passwd)s', 
                     MASTER_LOG_FILE='%(log_name)s',
