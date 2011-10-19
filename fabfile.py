@@ -2,29 +2,39 @@
 import re
 from functools import partial
 from os import path
-from fabric.api import run, cd, env, get, put
+from fabric.api import run, cd, env, get, put, settings
 from fabric.operations import sudo, local
 
-from mysql_commands import MysqlCmd, ask_ok
 
 def nice_run(cmd, nice_level=20):
     run("nice -n %s " % nice_level + cmd)
 
-env.hosts = ["root@server.com.com:22"]
+env.hosts = [""]
 env.key_filename = path.expanduser("~/.ssh/id_rsa")
 
+import mysql_commands
 
-MYSQL_USER = 'root'
+MYSQL_USER = '****'
 MYSQL_PASSWD = '****'
 
+mysql_commands.MYSQL_USER = MYSQL_USER
+mysql_commands.MYSQL_PASSWD = MYSQL_PASSWD
+
 MYSQL_REPLICATION_USER = 'replication'
-MYSQL_REPLICATION_PASS = '****'
+MYSQL_REPLICATION_PASS = '*****'
+MYSQL_REPLICATION_PORT = 3307
 
-def __nginx_ctrl(run):
-    local("/etc/init.d/nginx %s" % run)
+FORWARD_HOST = 'FROM_HOST'
+BACKWARD_HOST = 'TO_HOST'
 
-def __apache_ctrl(run):
-    run("/etc/init.d/apache2 %s" % run)
+
+from mysql_commands import MysqlCmd, ask_ok
+
+def __nginx_ctrl(ctrl_cmd):
+    run("/etc/init.d/nginx %s" % ctrl_cmd)
+
+def __apache_ctrl(ctrl_cmd):
+    run("/etc/init.d/apache2 %s" % ctrl_cmd)
 
 def __proxy_swap(from_s, to_s):
     """
@@ -52,12 +62,7 @@ def __enable_proxy():
 def __disable_proxy():
     __proxy_swap("ProxyPass /", "ProxyPass /proxy")
 
-def __flush_binlogs(remote=False):
-    if remote:
-        run = run
-    else:
-        run = partial(local, capture=True)
-
+def __flush_binlogs():
     mysql_cmd = 'FLUSH LOGS'
     cmd = '''mysql -u %(user)s -p%(passwd)s -e "%(cmd)s"'''
     params = dict(user=MYSQL_USER,
@@ -66,11 +71,7 @@ def __flush_binlogs(remote=False):
 
     run(cmd % params)
 
-def __read_binlogs(remote=True):
-    if remote:
-        run = run
-    else:
-        run = partial(local, capture=True)
+def __read_binlogs():
 
     mysql_cmd = 'SHOW MASTER STATUS\G'
     cmd = '''mysql -u %(user)s -p%(passwd)s -e "%(cmd)s"'''
@@ -86,11 +87,7 @@ def __read_binlogs(remote=True):
 
     return binlogfile, binlogposition
 
-def __promote_to_slave(host, port, user, passwd, log_name, log_pos, remote=True):
-    if remote:
-        run = run
-    else:
-        run = partial(local, capture=True)
+def __promote_to_slave(host, port, user, passwd, log_name, log_pos):
 
     mysqlCmd = MysqlCmd()
 
@@ -104,7 +101,7 @@ def __promote_to_slave(host, port, user, passwd, log_name, log_pos, remote=True)
                   log_pos=log_pos)
     cmd = """CHANGE MASTER TO 
                     MASTER_HOST='%(host)s',
-                    MASTER_PORT='%(port)s',  
+                    MASTER_PORT=%(port)s,  
                     MASTER_USER='%(user)s', 
                     MASTER_PASSWORD='%(passwd)s', 
                     MASTER_LOG_FILE='%(log_name)s',
@@ -124,22 +121,18 @@ def __promote_to_slave(host, port, user, passwd, log_name, log_pos, remote=True)
 
     print "I'm a new slave !"
 
-def __promote_to_master(log_name, log_pos, remote=True):
-    if remote:
-        run = run
-    else:
-        run = partial(local, capture=True)
+def __promote_to_master(log_name, log_pos):
 
     mysqlCmd = MysqlCmd()
 
     # initialize the lock for sync it returns when logs reach certain position.
     # we should get this position from the master after lock !
     cmd = "SELECT MASTER_POS_WAIT('%s', %s)" % (log_name, int(log_pos))
-    cmd = mysqlCmd(cmd, True)
-    local(cmd)
+    #cmd = mysqlCmd(cmd, True)
+    #run(cmd)
 
     cmd = mysqlCmd("SHOW SLAVE STATUS\G", True)
-    local(cmd)
+    run(cmd)
 
     #initialize the show status and ask prompt
     is_ok = ask_ok('Is this output ok ?')
@@ -149,55 +142,54 @@ def __promote_to_master(log_name, log_pos, remote=True):
 
 
     cmd = mysqlCmd('STOP SLAVE', True)
-    local(cmd)
+    run(cmd)
 
     cmd = mysqlCmd('RESET MASTER', True)
-    local(cmd)
+    run(cmd)
 
     print "I'm a new master !"
 
 
-def __promote_remote_to_slave(host, port, user, passwd, log_name, log_pos):
-    __promote_to_slave(host, port, user, passwd, log_name, log_pos, remote=True)
-
-def __promote_local_to_slave(host, port, user, passwd, log_name, log_pos):
-    __promote_to_slave(host, port, user, passwd, log_name, log_pos, remote=False)
-
-def __promote_local_to_master(log_name, log_pos):
-    __promote_to_master(log_name, log_pos, remote=False)
-
-def __promote_remote_to_master(log_name, log_pos):
-    __promote_to_master(log_name, log_pos, remote=True)
-
-
 def forward():
     # set proxy redirect to / in apache config
-    __enable_proxy()
+    with settings(host_string=BACKWARD_HOST):
+        __enable_proxy()
+        __apache_ctrl('stop')
+        __flush_binlogs()
+        binlogfile, binlogposition = __read_binlogs()
 
-    __apache_ctrl('stop')
-    __flush_binlogs(remote=True)
+    with settings(host_string=FORWARD_HOST):
+        __promote_to_master(log_name=binlogfile, log_pos=binlogposition)
+        binlogfile, binlogposition = __read_binlogs()
 
-    binlogfile, binlogposition = __read_binlogs(remote=True)
-    __promote_local_to_master(log_name=binlogfile, log_pos=binlogposition)
+    with settings(host_string=BACKWARD_HOST):
+        __promote_to_slave('127.0.0.1', MYSQL_REPLICATION_PORT,
+                           MYSQL_REPLICATION_USER, MYSQL_REPLICATION_PASS,
+                           log_name=binlogfile, log_pos=binlogposition)
+        __apache_ctrl('start')
 
-    binlogfile, binlogposition = __read_binlogs(remote=False)
-    __promote_remote_to_slave('127.0.0.1', 3307, MYSQL_REPLICATION_USER,
-                              MYSQL_PASSWD, log_name=binlogfile,
-                              log_pos=binlogposition)
-    __nginx_ctrl('stop')
+#    with settings(host_string=FORWARD_HOST):
+#        __nginx_ctrl('start')
+
 
 def backward():
 
-    __nginx_ctrl('stop')
-    __disable_proxy()
-    __flush_binlogs(remote=False)
-    binlogfile, binlogposition = __read_binlogs(remote=False)
+    with settings(host_string=FORWARD_HOST):
+#        __nginx_ctrl('stop')
+        __flush_binlogs()
+        binlogfile, binlogposition = __read_binlogs()
+        
+    with settings(host_string=BACKWARD_HOST):    
+        __promote_to_master(log_name=binlogfile, log_pos=binlogposition)
+        binlogfile, binlogposition = __read_binlogs()
 
-    __promote_remote_to_master(log_name=binlogfile, log_pos=binlogposition)
-    binlogfile, binlogposition = __read_binlogs(remote=True)
+    with settings(host_string=FORWARD_HOST):        
+        __promote_to_slave('127.0.0.1', MYSQL_REPLICATION_PORT,
+                           MYSQL_REPLICATION_USER, MYSQL_REPLICATION_PASS,
+                           log_name=binlogfile, log_pos=binlogposition)
 
-    __promote_local_to_slave('127.0.0.1', 3307, MYSQL_REPLICATION_USER,
-                              MYSQL_PASSWD, log_name=binlogfile,
-                              log_pos=binlogposition)
+    with settings(host_string=BACKWARD_HOST):
+        __apache_ctrl('stop')
+        __disable_proxy()
+        __apache_ctrl('start')
 
-    __apache_ctrl('start')

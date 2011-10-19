@@ -29,8 +29,8 @@ log = Logger('CommandLogger')
 from subprocess import Popen, PIPE
 
 DEBUG = True
-MYSQL_USER = 'root'
-MYSQL_PASSWD = 'qwe123qwe'
+MYSQL_USER = None
+MYSQL_PASSWD = None
 
 def ask_ok(prompt, retries=4, complaint='Yes or no, please!'):
     while True:
@@ -120,13 +120,9 @@ def make_master(log_name,log_pos):
     if not is_ok:
         raise Exception('Show status was not ok !')
 
-
-    cmd = 'STOP SLAVE'
-    mysqlCmd(cmd)
+    mysqlCmd('STOP SLAVE')
     
-    cmd = 'RESET MASTER'
-    mysqlCmd(cmd)
-    
+    mysqlCmd('RESET MASTER')
     
     print "I'm a new master !"
     
@@ -144,7 +140,7 @@ def make_slave(host,port,user,passwd,log_name,log_pos):
                   log_pos=log_pos)    
     cmd = """CHANGE MASTER TO 
                     MASTER_HOST='%(host)s',
-                    MASTER_PORT='%(port)s',  
+                    MASTER_PORT=%(port)s,  
                     MASTER_USER='%(user)s', 
                     MASTER_PASSWORD='%(passwd)s', 
                     MASTER_LOG_FILE='%(log_name)s',
