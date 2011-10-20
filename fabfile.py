@@ -63,24 +63,15 @@ def __disable_proxy():
     __proxy_swap("ProxyPass /", "ProxyPass /proxy")
 
 def __flush_binlogs():
-    mysql_cmd = 'FLUSH LOGS'
-    cmd = '''mysql -u %(user)s -p%(passwd)s -e "%(cmd)s"'''
-    params = dict(user=MYSQL_USER,
-                  passwd=MYSQL_PASSWD,
-                  cmd=mysql_cmd)
-
-    run(cmd % params)
+    mysqlCmd = MysqlCmd()
+    cmd = mysqlCmd('FLUSH LOGS', True)
+    run(cmd)
 
 def __read_binlogs():
+    mysqlCmd = MysqlCmd()
+    cmd = mysqlCmd('SHOW MASTER STATUS\G', True)
 
-    mysql_cmd = 'SHOW MASTER STATUS\G'
-    cmd = '''mysql -u %(user)s -p%(passwd)s -e "%(cmd)s"'''
-
-    params = dict(user=MYSQL_USER,
-                  passwd=MYSQL_PASSWD,
-                  cmd=mysql_cmd)
-
-    output = run(cmd % params)
+    output = run(cmd)
 
     binlogfile = re.findall(r'File: \S+', output)[0].split(':')[-1].strip()
     binlogposition = re.findall(r'Position: \S+', output)[0].split(':')[-1].strip()
@@ -178,12 +169,12 @@ def backward():
 #        __nginx_ctrl('stop')
         __flush_binlogs()
         binlogfile, binlogposition = __read_binlogs()
-        
-    with settings(host_string=BACKWARD_HOST):    
+
+    with settings(host_string=BACKWARD_HOST):
         __promote_to_master(log_name=binlogfile, log_pos=binlogposition)
         binlogfile, binlogposition = __read_binlogs()
 
-    with settings(host_string=FORWARD_HOST):        
+    with settings(host_string=FORWARD_HOST):
         __promote_to_slave('127.0.0.1', MYSQL_REPLICATION_PORT,
                            MYSQL_REPLICATION_USER, MYSQL_REPLICATION_PASS,
                            log_name=binlogfile, log_pos=binlogposition)
