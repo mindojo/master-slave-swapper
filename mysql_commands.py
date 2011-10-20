@@ -85,14 +85,18 @@ class Command(object):
 
 
 class MysqlCmd(Command):
-    def __init__(self, usr=None, passwd=None):
+    def __init__(self, usr=None, passwd=None, host="127.0.0.1", port=3306):
         self.usr = usr or MYSQL_USER
         self.passwd = passwd or MYSQL_PASSWD
+        self.host = host
+        self.port = port
 
     def __call__(self, mysql_cmd, just_command=False):
-        cmd = '''mysql -u %(user)s -p%(passwd)s -e "%(cmd)s"'''
+        cmd = '''mysql -u %(user)s -p%(passwd)s -h%(host)s -P%(port)s -e "%(cmd)s"'''
         params = dict(user=self.usr,
                       passwd=self.passwd,
+                      host=self.host,
+                      port=self.port,
                       cmd=mysql_cmd)
         if just_command:
             return cmd % params

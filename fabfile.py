@@ -4,7 +4,7 @@ from functools import partial
 from os import path
 from fabric.api import run, cd, env, get, put, settings
 from fabric.operations import sudo, local
-
+import mysql_commands
 
 def nice_run(cmd, nice_level=20):
     run("nice -n %s " % nice_level + cmd)
@@ -12,13 +12,8 @@ def nice_run(cmd, nice_level=20):
 env.hosts = [""]
 env.key_filename = path.expanduser("~/.ssh/id_rsa")
 
-import mysql_commands
-
 MYSQL_USER = '****'
 MYSQL_PASSWD = '****'
-
-mysql_commands.MYSQL_USER = MYSQL_USER
-mysql_commands.MYSQL_PASSWD = MYSQL_PASSWD
 
 MYSQL_REPLICATION_USER = 'replication'
 MYSQL_REPLICATION_PASS = '*****'
@@ -27,7 +22,8 @@ MYSQL_REPLICATION_PORT = 3307
 FORWARD_HOST = 'FROM_HOST'
 BACKWARD_HOST = 'TO_HOST'
 
-
+mysql_commands.MYSQL_USER = MYSQL_USER
+mysql_commands.MYSQL_PASSWD = MYSQL_PASSWD
 from mysql_commands import MysqlCmd, ask_ok
 
 def __nginx_ctrl(ctrl_cmd):
@@ -119,8 +115,8 @@ def __promote_to_master(log_name, log_pos):
     # initialize the lock for sync it returns when logs reach certain position.
     # we should get this position from the master after lock !
     cmd = "SELECT MASTER_POS_WAIT('%s', %s)" % (log_name, int(log_pos))
-    #cmd = mysqlCmd(cmd, True)
-    #run(cmd)
+    cmd = mysqlCmd(cmd, True)
+    run(cmd)
 
     cmd = mysqlCmd("SHOW SLAVE STATUS\G", True)
     run(cmd)
@@ -140,6 +136,17 @@ def __promote_to_master(log_name, log_pos):
 
     print "I'm a new master !"
 
+
+def test_connectivity():
+    mysqlCmd = MysqlCmd(MYSQL_REPLICATION_USER, MYSQL_REPLICATION_PASS,
+                        '127.0.0.1',MYSQL_REPLICATION_PORT)    
+    with settings(host_string=BACKWARD_HOST):
+        cmd = mysqlCmd("SELECT NOW()", True)
+        run(cmd)
+    
+    with settings(host_string=FORWARD_HOST):
+        cmd = mysqlCmd("SELECT NOW()", True)
+        run(cmd)
 
 def forward():
     # set proxy redirect to / in apache config
