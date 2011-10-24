@@ -44,10 +44,18 @@ def ask_ok(prompt, retries=4, complaint='Yes or no, please!'):
             raise IOError
         print complaint
 
+def __autostep(cmd=None):
+    auto = ask_ok('Run this %s command automatically' % cmd)
+    if auto:
+        return True
+    
+    return False
+
 class Command(object):
 
     def __init__(self, cwd=None):
         self.cwd = cwd
+        self.autoexecute = True
 
     def execute(self, cmd, *args):
         """Runs command on the system with given ``args``.
@@ -57,6 +65,7 @@ class Command(object):
         log.debug('Executing %s' % command)
         if DEBUG:
             print command
+
         p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE, cwd=self.cwd)
         stdout, stderr = p.communicate()
         if DEBUG:
@@ -90,16 +99,20 @@ class MysqlCmd(Command):
         self.passwd = passwd or MYSQL_PASSWD
         self.host = host
         self.port = port
-
+        self.cwd = None
+        self.autoexecute = False
+        
     def __call__(self, mysql_cmd, just_command=False):
-        cmd = '''mysql -u %(user)s -p%(passwd)s -h%(host)s -P%(port)s -e "%(cmd)s"'''
+        #cmd = '''mysql -u %(user)s -p%(passwd)s -h%(host)s -P%(port)s -e "%(cmd)s"'''
+        cmd = '''mysql -u %(user)s -p%(passwd)s -P%(port)s -e "%(cmd)s"'''
         params = dict(user=self.usr,
                       passwd=self.passwd,
                       host=self.host,
                       port=self.port,
                       cmd=mysql_cmd)
         if just_command:
-            return cmd % params
+            c = cmd % params
+            return c
         stdout, stderr = self.execute(cmd % params)
         return stdout
 

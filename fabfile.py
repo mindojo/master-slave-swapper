@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 import re
-from functools import partial
 from os import path
 from fabric.api import run, cd, env, get, put, settings
 from fabric.operations import sudo, local
 import mysql_commands
+import time
 
 def nice_run(cmd, nice_level=20):
     run("nice -n %s " % nice_level + cmd)
@@ -52,12 +52,22 @@ def __proxy_swap(from_s, to_s):
 
     put('/tmp/apache-conf', apache_conf)
 
+def __test_now():
+    mysqlCmd = MysqlCmd()
+    cmd = mysqlCmd('SELECT NOW()',True)
+    run(cmd)    
+
 def __enable_proxy():
     __proxy_swap("ProxyPass /proxy", "ProxyPass /")
 
 def __disable_proxy():
     __proxy_swap("ProxyPass /", "ProxyPass /proxy")
 
+def __set_readonly(readonly):
+    mysqlCmd = MysqlCmd()
+    cmd = mysqlCmd('set GLOBAL read_only = %s' % readonly,True)
+    run(cmd)
+    
 def __flush_binlogs():
     mysqlCmd = MysqlCmd()
     cmd = mysqlCmd('FLUSH LOGS', True)
@@ -140,30 +150,37 @@ def __promote_to_master(log_name, log_pos):
 def test_connectivity():
     mysqlCmd = MysqlCmd(MYSQL_REPLICATION_USER, MYSQL_REPLICATION_PASS,
                         '127.0.0.1',MYSQL_REPLICATION_PORT)    
-    with settings(host_string=BACKWARD_HOST):
-        cmd = mysqlCmd("SELECT NOW()", True)
-        run(cmd)
     
     with settings(host_string=FORWARD_HOST):
-        cmd = mysqlCmd("SELECT NOW()", True)
+        cmd = mysqlCmd("SELECT NOW();SELECT version()", True)
         run(cmd)
+    
+    with settings(host_string=BACKWARD_HOST):
+        cmd = mysqlCmd("SELECT NOW();SELECT version()", True)
+        run(cmd)
+
 
 def forward():
     # set proxy redirect to / in apache config
     with settings(host_string=BACKWARD_HOST):
+        __test_now()
         __enable_proxy()
         __apache_ctrl('stop')
         __flush_binlogs()
         binlogfile, binlogposition = __read_binlogs()
 
     with settings(host_string=FORWARD_HOST):
+        __test_now()
+        __set_readonly('false')
         __promote_to_master(log_name=binlogfile, log_pos=binlogposition)
         binlogfile, binlogposition = __read_binlogs()
 
     with settings(host_string=BACKWARD_HOST):
+        __test_now()
         __promote_to_slave('127.0.0.1', MYSQL_REPLICATION_PORT,
                            MYSQL_REPLICATION_USER, MYSQL_REPLICATION_PASS,
                            log_name=binlogfile, log_pos=binlogposition)
+        __set_readonly('true')
         __apache_ctrl('start')
 
 #    with settings(host_string=FORWARD_HOST):
@@ -173,19 +190,24 @@ def forward():
 def backward():
 
     with settings(host_string=FORWARD_HOST):
-#        __nginx_ctrl('stop')
+        #__test_now()
+        #__nginx_ctrl('stop')
         __flush_binlogs()
         binlogfile, binlogposition = __read_binlogs()
-
+    
     with settings(host_string=BACKWARD_HOST):
+        #__test_now()
+        __set_readonly('false')
         __promote_to_master(log_name=binlogfile, log_pos=binlogposition)
         binlogfile, binlogposition = __read_binlogs()
 
     with settings(host_string=FORWARD_HOST):
+        #__test_now()
         __promote_to_slave('127.0.0.1', MYSQL_REPLICATION_PORT,
                            MYSQL_REPLICATION_USER, MYSQL_REPLICATION_PASS,
                            log_name=binlogfile, log_pos=binlogposition)
-
+        __set_readonly('true')
+        
     with settings(host_string=BACKWARD_HOST):
         __apache_ctrl('stop')
         __disable_proxy()
