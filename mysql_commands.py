@@ -5,18 +5,18 @@
 
 
     Slave scripting
-    
+
     General information about switching master <-> slave
-    
+
     Make sure that machines can talk to each other !
-    
+
     mysql -u<username> -p -h otherhost
-    
+
     Grant replication access for some user::
-        
+
         grant replication slave on *.* to myslaveusr@'<host>' identified by 'MYSLVPWD';
-    
-    
+
+
     :created_on: Oct 4, 2011
     :author: marcink
 """
@@ -48,7 +48,7 @@ def __autostep(cmd=None):
     auto = ask_ok('Run this %s command automatically' % cmd)
     if auto:
         return True
-    
+
     return False
 
 class Command(object):
@@ -101,7 +101,7 @@ class MysqlCmd(Command):
         self.port = port
         self.cwd = None
         self.autoexecute = False
-        
+
     def __call__(self, mysql_cmd, just_command=False):
         #cmd = '''mysql -u %(user)s -p%(passwd)s -h%(host)s -P%(port)s -e "%(cmd)s"'''
         cmd = '''mysql -u %(user)s -p%(passwd)s -P%(port)s -e "%(cmd)s"'''
@@ -120,7 +120,7 @@ class MysqlCmd(Command):
 def make_master(log_name, log_pos):
     """
     Makes a master from slave
-    
+
     :param log_name:
     :param log_pos:
     """
@@ -158,11 +158,11 @@ def make_slave(host, port, user, passwd, log_name, log_pos):
                   passwd=passwd,
                   log_name=log_name,
                   log_pos=log_pos)
-    cmd = """CHANGE MASTER TO 
+    cmd = """CHANGE MASTER TO
                     MASTER_HOST='%(host)s',
-                    MASTER_PORT=%(port)s,  
-                    MASTER_USER='%(user)s', 
-                    MASTER_PASSWORD='%(passwd)s', 
+                    MASTER_PORT=%(port)s,
+                    MASTER_USER='%(user)s',
+                    MASTER_PASSWORD='%(passwd)s',
                     MASTER_LOG_FILE='%(log_name)s',
                     MASTER_LOG_POS=%(log_pos)s""" % params;
 
