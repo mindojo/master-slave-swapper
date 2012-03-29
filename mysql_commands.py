@@ -128,8 +128,8 @@ def make_master(log_name, log_pos):
 
     # initialize the lock for sync it returns when logs reach certain position.
     # we should get this position from the master after lock !
-    cmd = "SELECT MASTER_POS_WAIT('%s', %s)" % (log_name, int(log_pos))
-    mysqlCmd(cmd)
+    #cmd = "SELECT MASTER_POS_WAIT('%s', %s)" % (log_name, int(log_pos))
+    #mysqlCmd(cmd)
 
 
     cmd = "SHOW SLAVE STATUS\G"
